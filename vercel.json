@@ -1,39 +1,28 @@
 {
-  "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/index.js",
-      "use": "@vercel/node"
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
     },
     {
-      "src": "frontend/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index.js"
+      "source": "/",
+      "destination": "/frontend/login.html"
     },
     {
-      "src": "/",
-      "dest": "/frontend/login.html"
+      "source": "/css/(.*)",
+      "destination": "/frontend/css/$1"
     },
     {
-      "src": "/css/(.*)",
-      "dest": "/frontend/css/$1"
+      "source": "/js/(.*)",
+      "destination": "/frontend/js/$1"
     },
     {
-      "src": "/js/(.*)",
-      "dest": "/frontend/js/$1"
+      "source": "/:page.html",
+      "destination": "/frontend/:page.html"
     },
     {
-      "src": "/(index|login|products|suppliers|stock|billing|reports).html",
-      "dest": "/frontend/$1.html"
-    },
-    {
-      "src": "/(index|login|products|suppliers|stock|billing|reports)",
-      "dest": "/frontend/$1.html"
+      "source": "/:page",
+      "destination": "/frontend/:page.html"
     }
   ]
 }
