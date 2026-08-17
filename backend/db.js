@@ -1,16 +1,20 @@
 // ============================================================================
-// db.js — Universal Database Adapter (PostgreSQL for Cloud/Vercel + SQLite for Local)
+// db.js — Universal Database Adapter (PostgreSQL for Cloud/Vercel + SQLite for Local/Fallback)
 // ============================================================================
 
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
 
 let dbClient = null;
 let isPostgres = false;
+let isInitialized = false;
+let initPromise = null;
 
-// Check for PostgreSQL connection string
+// Detect Environment
 const DATABASE_URL = process.env.DATABASE_URL;
+const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NOW_REGION);
 
 if (DATABASE_URL && (DATABASE_URL.startsWith('postgres://') || DATABASE_URL.startsWith('postgresql://'))) {
     isPostgres = true;
@@ -33,7 +37,12 @@ if (DATABASE_URL && (DATABASE_URL.startsWith('postgres://') || DATABASE_URL.star
 } else {
     isPostgres = false;
     const sqlite3 = require('sqlite3').verbose();
-    const dbPath = path.join(__dirname, 'database.db');
+    
+    // On Vercel serverless, the repository filesystem is READ-ONLY.
+    // The only writable location on Vercel lambda is /tmp.
+    const dbPath = isVercel 
+        ? path.join('/tmp', 'database.db') 
+        : path.join(__dirname, 'database.db');
 
     dbClient = new sqlite3.Database(dbPath, (err) => {
         if (err) {
@@ -52,142 +61,12 @@ function formatSql(sql) {
 }
 
 // ============================================================================
-// Unified Query Methods
-// ============================================================================
-
-/**
- * Execute a query that returns multiple rows
- */
-function all(sql, params = []) {
-    return new Promise((resolve, reject) => {
-        const formattedSql = formatSql(sql);
-
-        if (isPostgres) {
-            dbClient.query(formattedSql, params, (err, res) => {
-                if (err) return reject(err);
-                resolve(res.rows || []);
-            });
-        } else {
-            dbClient.all(formattedSql, params, (err, rows) => {
-                if (err) return reject(err);
-                resolve(rows || []);
-            });
-        }
-    });
-}
-
-/**
- * Execute a query that returns a single row
- */
-function get(sql, params = []) {
-    return new Promise((resolve, reject) => {
-        const formattedSql = formatSql(sql);
-
-        if (isPostgres) {
-            dbClient.query(formattedSql, params, (err, res) => {
-                if (err) return reject(err);
-                resolve(res.rows && res.rows.length > 0 ? res.rows[0] : null);
-            });
-        } else {
-            dbClient.get(formattedSql, params, (err, row) => {
-                if (err) return reject(err);
-                resolve(row || null);
-            });
-        }
-    });
-}
-
-/**
- * Execute an INSERT, UPDATE, or DELETE query
- */
-function run(sql, params = []) {
-    return new Promise((resolve, reject) => {
-        if (isPostgres) {
-            // If it's an INSERT, append RETURNING id to get the inserted ID
-            let pgSql = sql;
-            const isInsert = /^\s*insert\s+into/i.test(sql);
-            if (isInsert && !/returning/i.test(sql)) {
-                pgSql += ' RETURNING id';
-            }
-            const formattedSql = formatSql(pgSql);
-
-            dbClient.query(formattedSql, params, (err, res) => {
-                if (err) return reject(err);
-                const lastID = isInsert && res.rows && res.rows[0] ? res.rows[0].id : null;
-                resolve({ lastID, changes: res.rowCount || 0 });
-            });
-        } else {
-            const formattedSql = formatSql(sql);
-            dbClient.run(formattedSql, params, function (err) {
-                if (err) return reject(err);
-                resolve({ lastID: this.lastID, changes: this.changes });
-            });
-        }
-    });
-}
-
-/**
- * Transaction helper for atomic operations (like POS Checkout)
- */
-async function transaction(callback) {
-    if (isPostgres) {
-        const client = await dbClient.connect();
-        try {
-            await client.query('BEGIN');
-            const trxHelper = {
-                query: (sql, params = []) => client.query(formatSql(sql), params),
-                get: async (sql, params = []) => {
-                    const res = await client.query(formatSql(sql), params);
-                    return res.rows[0] || null;
-                },
-                all: async (sql, params = []) => {
-                    const res = await client.query(formatSql(sql), params);
-                    return res.rows || [];
-                },
-                run: async (sql, params = []) => {
-                    let pgSql = sql;
-                    const isInsert = /^\s*insert\s+into/i.test(sql);
-                    if (isInsert && !/returning/i.test(sql)) {
-                        pgSql += ' RETURNING id';
-                    }
-                    const res = await client.query(formatSql(pgSql), params);
-                    const lastID = isInsert && res.rows && res.rows[0] ? res.rows[0].id : null;
-                    return { lastID, changes: res.rowCount || 0 };
-                }
-            };
-            const result = await callback(trxHelper);
-            await client.query('COMMIT');
-            return result;
-        } catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        } finally {
-            client.release();
-        }
-    } else {
-        // SQLite sequential execution helper
-        await run('BEGIN TRANSACTION');
-        try {
-            const trxHelper = {
-                get: (sql, params = []) => get(sql, params),
-                all: (sql, params = []) => all(sql, params),
-                run: (sql, params = []) => run(sql, params)
-            };
-            const result = await callback(trxHelper);
-            await run('COMMIT');
-            return result;
-        } catch (err) {
-            await run('ROLLBACK');
-            throw err;
-        }
-    }
-}
-
-// ============================================================================
 // Database Initialization & Schema Migrations
 // ============================================================================
 
 async function initDatabase() {
+    if (isInitialized) return;
+    
     try {
         console.log('🔄 Initializing database schema...');
 
@@ -241,8 +120,8 @@ async function initDatabase() {
                 );
             `);
         } else {
-            // SQLite Schema
-            await run(`
+            // SQLite Schema execution
+            await executeRaw(`
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT UNIQUE,
@@ -251,7 +130,7 @@ async function initDatabase() {
                 )
             `);
 
-            await run(`
+            await executeRaw(`
                 CREATE TABLE IF NOT EXISTS products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -263,7 +142,7 @@ async function initDatabase() {
                 )
             `);
 
-            await run(`
+            await executeRaw(`
                 CREATE TABLE IF NOT EXISTS suppliers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT,
@@ -275,7 +154,7 @@ async function initDatabase() {
                 )
             `);
 
-            await run(`
+            await executeRaw(`
                 CREATE TABLE IF NOT EXISTS sales (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     invoice_number TEXT UNIQUE,
@@ -287,7 +166,7 @@ async function initDatabase() {
                 )
             `);
 
-            await run(`
+            await executeRaw(`
                 CREATE TABLE IF NOT EXISTS sale_items (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     sale_id INTEGER,
@@ -301,60 +180,219 @@ async function initDatabase() {
         }
 
         // Check and seed default admin user
-        const adminUser = await get('SELECT * FROM users WHERE username = ?', ['admin']);
+        const adminUser = await executeGet('SELECT * FROM users WHERE username = ?', ['admin']);
         if (!adminUser) {
             const defaultHash = await bcrypt.hash('admin123', 10);
-            await run('INSERT INTO users (username, password) VALUES (?, ?)', ['admin', defaultHash]);
+            await executeRun('INSERT INTO users (username, password) VALUES (?, ?)', ['admin', defaultHash]);
             console.log('✅ Created default admin account (admin / admin123)');
         } else if (adminUser.password === 'admin123') {
-            // Migrate unhashed password to bcrypt
             const upgradedHash = await bcrypt.hash('admin123', 10);
-            await run('UPDATE users SET password = ? WHERE id = ?', [upgradedHash, adminUser.id]);
+            await executeRun('UPDATE users SET password = ? WHERE id = ?', [upgradedHash, adminUser.id]);
             console.log('🔒 Upgraded legacy plaintext admin password to bcrypt hash');
         }
 
-        // Check if sample data should be populated (if products table is empty)
-        const productCount = await get('SELECT COUNT(*) as count FROM products');
+        // Check if sample data should be populated
+        const productCount = await executeGet('SELECT COUNT(*) as count FROM products');
         const count = isPostgres ? parseInt(productCount.count, 10) : productCount.count;
 
         if (count === 0) {
             console.log('🌱 Seeding initial demo data...');
-            // Seed Suppliers
-            await run(`INSERT INTO suppliers (name, company, phone, email, address) VALUES (?, ?, ?, ?, ?)`, [
+            await executeRun(`INSERT INTO suppliers (name, company, phone, email, address) VALUES (?, ?, ?, ?, ?)`, [
                 'Rajesh Sharma', 'ElectroTech Global Ltd', '+91 9876543210', 'contact@electrotech.com', 'Plot 42, Electronics City, Bengaluru'
             ]);
-            await run(`INSERT INTO suppliers (name, company, phone, email, address) VALUES (?, ?, ?, ?, ?)`, [
+            await executeRun(`INSERT INTO suppliers (name, company, phone, email, address) VALUES (?, ?, ?, ?, ?)`, [
                 'Priya Patel', 'Apex Supplies & Paper', '+91 9123456780', 'sales@apexsupplies.in', '12 Industrial Area, Mumbai'
             ]);
 
-            // Seed Products
-            await run(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
+            await executeRun(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
                 'Dell Latitude 5420 Laptop', 'Electronics', 58500.00, 15, 'ElectroTech Global Ltd'
             ]);
-            await run(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
+            await executeRun(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
                 'Logitech MX Master 3S Mouse', 'Accessories', 8999.00, 24, 'ElectroTech Global Ltd'
             ]);
-            await run(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
+            await executeRun(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
                 'Samsung 27" 4K Monitor', 'Displays', 24999.00, 8, 'ElectroTech Global Ltd'
             ]);
-            await run(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
+            await executeRun(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
                 'Mechanical Keyboard RGB', 'Accessories', 4500.00, 5, 'ElectroTech Global Ltd'
             ]);
-            await run(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
+            await executeRun(`INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`, [
                 'A4 Copier Paper (500 Sheets)', 'Stationery', 320.00, 0, 'Apex Supplies & Paper'
             ]);
 
             console.log('✅ Demo inventory items seeded successfully');
         }
 
+        isInitialized = true;
         console.log('✅ Database schema and seed data verified');
     } catch (err) {
         console.error('❌ Database Initialization Error:', err);
+        throw err;
     }
 }
 
-// Auto-initialize
-initDatabase();
+function ensureInitialized() {
+    if (!initPromise) {
+        initPromise = initDatabase().catch(err => {
+            initPromise = null; // Allow retry on failure
+            throw err;
+        });
+    }
+    return initPromise;
+}
+
+// Low-level execution helpers used during init
+function executeRaw(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        const formattedSql = formatSql(sql);
+        if (isPostgres) {
+            dbClient.query(formattedSql, params, (err, res) => {
+                if (err) return reject(err);
+                resolve(res);
+            });
+        } else {
+            dbClient.run(formattedSql, params, function (err) {
+                if (err) return reject(err);
+                resolve({ lastID: this.lastID, changes: this.changes });
+            });
+        }
+    });
+}
+
+function executeGet(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        const formattedSql = formatSql(sql);
+        if (isPostgres) {
+            dbClient.query(formattedSql, params, (err, res) => {
+                if (err) return reject(err);
+                resolve(res.rows && res.rows.length > 0 ? res.rows[0] : null);
+            });
+        } else {
+            dbClient.get(formattedSql, params, (err, row) => {
+                if (err) return reject(err);
+                resolve(row || null);
+            });
+        }
+    });
+}
+
+function executeRun(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        if (isPostgres) {
+            let pgSql = sql;
+            const isInsert = /^\s*insert\s+into/i.test(sql);
+            if (isInsert && !/returning/i.test(sql)) {
+                pgSql += ' RETURNING id';
+            }
+            const formattedSql = formatSql(pgSql);
+            dbClient.query(formattedSql, params, (err, res) => {
+                if (err) return reject(err);
+                const lastID = isInsert && res.rows && res.rows[0] ? res.rows[0].id : null;
+                resolve({ lastID, changes: res.rowCount || 0 });
+            });
+        } else {
+            const formattedSql = formatSql(sql);
+            dbClient.run(formattedSql, params, function (err) {
+                if (err) return reject(err);
+                resolve({ lastID: this.lastID, changes: this.changes });
+            });
+        }
+    });
+}
+
+// ============================================================================
+// Public Query Methods (Auto-awaits database initialization)
+// ============================================================================
+
+async function all(sql, params = []) {
+    await ensureInitialized();
+    return new Promise((resolve, reject) => {
+        const formattedSql = formatSql(sql);
+        if (isPostgres) {
+            dbClient.query(formattedSql, params, (err, res) => {
+                if (err) return reject(err);
+                resolve(res.rows || []);
+            });
+        } else {
+            dbClient.all(formattedSql, params, (err, rows) => {
+                if (err) return reject(err);
+                resolve(rows || []);
+            });
+        }
+    });
+}
+
+async function get(sql, params = []) {
+    await ensureInitialized();
+    return executeGet(sql, params);
+}
+
+async function run(sql, params = []) {
+    await ensureInitialized();
+    return executeRun(sql, params);
+}
+
+async function transaction(callback) {
+    await ensureInitialized();
+    if (isPostgres) {
+        const client = await dbClient.connect();
+        try {
+            await client.query('BEGIN');
+            const trxHelper = {
+                query: (sql, params = []) => client.query(formatSql(sql), params),
+                get: async (sql, params = []) => {
+                    const res = await client.query(formatSql(sql), params);
+                    return res.rows[0] || null;
+                },
+                all: async (sql, params = []) => {
+                    const res = await client.query(formatSql(sql), params);
+                    return res.rows || [];
+                },
+                run: async (sql, params = []) => {
+                    let pgSql = sql;
+                    const isInsert = /^\s*insert\s+into/i.test(sql);
+                    if (isInsert && !/returning/i.test(sql)) {
+                        pgSql += ' RETURNING id';
+                    }
+                    const res = await client.query(formatSql(pgSql), params);
+                    const lastID = isInsert && res.rows && res.rows[0] ? res.rows[0].id : null;
+                    return { lastID, changes: res.rowCount || 0 };
+                }
+            };
+            const result = await callback(trxHelper);
+            await client.query('COMMIT');
+            return result;
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+    } else {
+        await executeRun('BEGIN TRANSACTION');
+        try {
+            const trxHelper = {
+                get: (sql, params = []) => executeGet(sql, params),
+                all: (sql, params = []) => new Promise((resolve, reject) => {
+                    dbClient.all(formatSql(sql), params, (err, rows) => {
+                        if (err) return reject(err);
+                        resolve(rows || []);
+                    });
+                }),
+                run: (sql, params = []) => executeRun(sql, params)
+            };
+            const result = await callback(trxHelper);
+            await executeRun('COMMIT');
+            return result;
+        } catch (err) {
+            await executeRun('ROLLBACK');
+            throw err;
+        }
+    }
+}
+
+// Start initialization
+ensureInitialized();
 
 module.exports = {
     query: all,
@@ -362,6 +400,6 @@ module.exports = {
     get,
     run,
     transaction,
-    initDatabase,
+    initDatabase: ensureInitialized,
     isPostgres: () => isPostgres
 };

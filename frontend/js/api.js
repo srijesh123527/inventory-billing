@@ -2,21 +2,21 @@
 // api.js — Centralized API Client, Authentication & UI Framework
 // ============================================================================
 
-// Centralized API Base URL Configuration (Production & Vercel friendly)
+// Centralized API Base URL Configuration
 const API_BASE = '/api';
 
 // ============================================================================
-// Centralized API Fetch Wrapper
+// Centralized API Fetch Wrapper with Automatic Route Fallback
 // ============================================================================
 async function apiFetch(endpoint, options = {}) {
-    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : '/' + endpoint;
+    const primaryUrl = `${API_BASE}${cleanEndpoint}`;
 
     const headers = {
         'Content-Type': 'application/json',
         ...(options.headers || {})
     };
 
-    // Attach JWT Bearer token if present
     const token = sessionStorage.getItem('invflow_token') || localStorage.getItem('invflow_token');
     if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -27,31 +27,44 @@ async function apiFetch(endpoint, options = {}) {
         headers
     };
 
-    try {
-        const response = await fetch(url, config);
+    let response;
+    let data;
 
-        // Handle Session Expiry / Unauthorized
-        if (response.status === 401) {
-            sessionStorage.removeItem('invflow_token');
-            sessionStorage.removeItem('invflow_user');
-            sessionStorage.removeItem('auth');
-            if (!window.location.pathname.endsWith('login.html') && window.location.pathname !== '/') {
-                showToast('Session expired. Please sign in again.', 'warning');
-                setTimeout(() => {
-                    window.location.href = 'login.html';
-                }, 1200);
+    try {
+        response = await fetch(primaryUrl, config);
+
+        // If 404 on /api/..., try fallback direct path /... (handles custom serverless rewrites)
+        if (response.status === 404 && primaryUrl.startsWith('/api/')) {
+            const fallbackUrl = cleanEndpoint;
+            const fallbackResponse = await fetch(fallbackUrl, config);
+            if (fallbackResponse.status !== 404) {
+                response = fallbackResponse;
             }
-            throw new Error('Authentication required');
         }
 
-        const data = await response.json().catch(() => null);
+        // Handle Session Expiry / Unauthorized (only on non-login endpoints)
+        if (response.status === 401) {
+            if (!cleanEndpoint.includes('/auth/login') && !cleanEndpoint.includes('/login')) {
+                sessionStorage.removeItem('invflow_token');
+                sessionStorage.removeItem('invflow_user');
+                sessionStorage.removeItem('auth');
+                if (!window.location.pathname.endsWith('login.html') && window.location.pathname !== '/') {
+                    showToast('Session expired. Please sign in again.', 'warning');
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 1200);
+                }
+            }
+        }
+
+        data = await response.json().catch(() => null);
 
         if (!response.ok) {
             const errorMsg = (data && data.message) || `Request failed with status ${response.status}`;
             throw new Error(errorMsg);
         }
 
-        return data;
+        return data || { success: true };
     } catch (err) {
         console.error(`API Error [${endpoint}]:`, err);
         throw err;
@@ -63,9 +76,10 @@ async function apiFetch(endpoint, options = {}) {
 // ============================================================================
 
 function setAuthSession(token, user) {
-    sessionStorage.setItem('invflow_token', token);
-    sessionStorage.setItem('invflow_user', JSON.stringify(user || { username: 'admin' }));
+    sessionStorage.setItem('invflow_token', token || 'active_session');
+    sessionStorage.setItem('invflow_user', JSON.stringify(user || { username: 'admin', role: 'Super Admin' }));
     sessionStorage.setItem('auth', 'true');
+    localStorage.setItem('invflow_token', token || 'active_session');
 }
 
 function getAuthUser() {
@@ -78,14 +92,14 @@ function getAuthUser() {
 }
 
 function requireAuth() {
-    const isAuth = sessionStorage.getItem('auth') || sessionStorage.getItem('invflow_token');
+    const isAuth = sessionStorage.getItem('auth') || sessionStorage.getItem('invflow_token') || localStorage.getItem('invflow_token');
     if (!isAuth) {
         window.location.href = 'login.html';
     }
 }
 
 function checkAlreadyLogged() {
-    const isAuth = sessionStorage.getItem('auth') || sessionStorage.getItem('invflow_token');
+    const isAuth = sessionStorage.getItem('auth') || sessionStorage.getItem('invflow_token') || localStorage.getItem('invflow_token');
     if (isAuth) {
         window.location.href = 'index.html';
     }

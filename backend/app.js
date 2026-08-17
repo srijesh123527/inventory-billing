@@ -40,29 +40,14 @@ function authenticateToken(req, res, next) {
 }
 
 // ============================================================================
-// 🏠 ROOT & FRONTEND NAVIGATION ROUTES
+// API Router (Mounted on both '/api' and '/' for bulletproof Vercel routing)
 // ============================================================================
+const apiRouter = express.Router();
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/login.html'));
-});
-
-app.get('/:page.html', (req, res) => {
-    const pagePath = path.join(__dirname, '../frontend', req.params.page + '.html');
-    res.sendFile(pagePath, (err) => {
-        if (err) {
-            res.status(404).send('Page not found');
-        }
-    });
-});
-
-// ============================================================================
-// 🔐 AUTHENTICATION APIS
-// ============================================================================
-
+// 🔐 Login Handler
 async function handleLogin(req, res) {
     try {
-        const { username, password } = req.body;
+        const { username, password } = req.body || {};
 
         if (!username || !password) {
             return res.status(400).json({
@@ -80,14 +65,12 @@ async function handleLogin(req, res) {
             });
         }
 
-        // Support both bcrypt hash and fallback plaintext if needed
         let isMatch = false;
         if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
             isMatch = await bcrypt.compare(password, user.password);
         } else {
             isMatch = (user.password === password);
             if (isMatch) {
-                // Automatically upgrade to bcrypt hash
                 const newHash = await bcrypt.hash(password, 10);
                 await db.run('UPDATE users SET password = ? WHERE id = ?', [newHash, user.id]);
             }
@@ -100,7 +83,6 @@ async function handleLogin(req, res) {
             });
         }
 
-        // Generate signed JWT Token
         const token = jwt.sign(
             { id: user.id, username: user.username, role: 'admin' },
             JWT_SECRET,
@@ -123,16 +105,16 @@ async function handleLogin(req, res) {
         console.error('Login Error:', err);
         return res.status(500).json({
             success: false,
-            message: 'Internal server error during authentication'
+            message: 'Internal server error during authentication: ' + err.message
         });
     }
 }
 
-// Standardized Auth Endpoints
-app.post('/api/auth/login', handleLogin);
-app.post('/api/login', handleLogin); // Backward-compatibility alias
+// Mount Auth endpoints
+apiRouter.post('/auth/login', handleLogin);
+apiRouter.post('/login', handleLogin);
 
-app.get('/api/auth/me', (req, res) => {
+apiRouter.get('/auth/me', (req, res) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -151,15 +133,10 @@ app.get('/api/auth/me', (req, res) => {
     });
 });
 
-// ============================================================================
-// 📦 PRODUCT MANAGEMENT APIS
-// ============================================================================
-
-// Get All Products
-app.get('/api/products', async (req, res) => {
+// 📦 Product Management Endpoints
+apiRouter.get('/products', async (req, res) => {
     try {
         const rows = await db.all('SELECT * FROM products ORDER BY id DESC');
-        // Ensure numeric price and quantity formatting
         const formatted = rows.map(p => ({
             ...p,
             price: Number(p.price) || 0,
@@ -180,8 +157,7 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
-// Get Single Product by ID
-app.get('/api/products/:id', async (req, res) => {
+apiRouter.get('/products/:id', async (req, res) => {
     try {
         const product = await db.get('SELECT * FROM products WHERE id = ?', [req.params.id]);
         if (!product) {
@@ -196,10 +172,9 @@ app.get('/api/products/:id', async (req, res) => {
     }
 });
 
-// Add New Product
-app.post('/api/products', async (req, res) => {
+apiRouter.post('/products', async (req, res) => {
     try {
-        const { name, category, price, quantity, supplier } = req.body;
+        const { name, category, price, quantity, supplier } = req.body || {};
 
         const trimmedName = typeof name === 'string' ? name.trim() : '';
         const numPrice = Number(price);
@@ -207,34 +182,22 @@ app.post('/api/products', async (req, res) => {
         const cat = typeof category === 'string' ? category.trim() : '';
         const supp = typeof supplier === 'string' ? supplier.trim() : '';
 
-        // Robust Server-Side Validations
         if (!trimmedName) {
-            return res.status(400).json({
-                success: false,
-                message: 'Product name is required'
-            });
+            return res.status(400).json({ success: false, message: 'Product name is required' });
         }
 
         if (!Number.isFinite(numPrice) || numPrice <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Price must be a valid positive number'
-            });
+            return res.status(400).json({ success: false, message: 'Price must be a valid positive number' });
         }
 
         if (!Number.isInteger(numQty) || numQty < 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Quantity must be a valid non-negative integer'
-            });
+            return res.status(400).json({ success: false, message: 'Quantity must be a valid non-negative integer' });
         }
 
         const result = await db.run(
             `INSERT INTO products (name, category, price, quantity, supplier) VALUES (?, ?, ?, ?, ?)`,
             [trimmedName, cat, numPrice, numQty, supp]
         );
-
-        console.log(`Product created with ID: ${result.lastID}`);
 
         res.status(201).json({
             success: true,
@@ -250,19 +213,14 @@ app.post('/api/products', async (req, res) => {
         });
     } catch (err) {
         console.error('Add Product Error:', err);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to add product to database',
-            error: err.message
-        });
+        res.status(500).json({ success: false, message: 'Failed to add product', error: err.message });
     }
 });
 
-// Update Existing Product
-app.put('/api/products/:id', async (req, res) => {
+apiRouter.put('/products/:id', async (req, res) => {
     try {
         const id = req.params.id;
-        const { name, category, price, quantity, supplier } = req.body;
+        const { name, category, price, quantity, supplier } = req.body || {};
 
         const trimmedName = typeof name === 'string' ? name.trim() : '';
         const numPrice = Number(price);
@@ -300,8 +258,7 @@ app.put('/api/products/:id', async (req, res) => {
     }
 });
 
-// Delete Product
-app.delete('/api/products/:id', async (req, res) => {
+apiRouter.delete('/products/:id', async (req, res) => {
     try {
         const id = req.params.id;
         const result = await db.run('DELETE FROM products WHERE id = ?', [id]);
@@ -317,25 +274,18 @@ app.delete('/api/products/:id', async (req, res) => {
     }
 });
 
-// ============================================================================
-// 🏭 SUPPLIER MANAGEMENT APIS
-// ============================================================================
-
-app.get('/api/suppliers', async (req, res) => {
+// 🏭 Supplier Management Endpoints
+apiRouter.get('/suppliers', async (req, res) => {
     try {
         const rows = await db.all('SELECT * FROM suppliers ORDER BY id DESC');
-        res.json({
-            success: true,
-            message: 'Suppliers retrieved successfully',
-            data: rows
-        });
+        res.json({ success: true, message: 'Suppliers retrieved successfully', data: rows });
     } catch (err) {
         console.error('Fetch Suppliers Error:', err);
         res.status(500).json({ success: false, message: 'Error fetching suppliers', error: err.message });
     }
 });
 
-app.get('/api/suppliers/:id', async (req, res) => {
+apiRouter.get('/suppliers/:id', async (req, res) => {
     try {
         const supplier = await db.get('SELECT * FROM suppliers WHERE id = ?', [req.params.id]);
         if (!supplier) {
@@ -347,9 +297,9 @@ app.get('/api/suppliers/:id', async (req, res) => {
     }
 });
 
-app.post('/api/suppliers', async (req, res) => {
+apiRouter.post('/suppliers', async (req, res) => {
     try {
-        const { name, company, phone, email, address } = req.body;
+        const { name, company, phone, email, address } = req.body || {};
 
         if (!name || !name.trim()) {
             return res.status(400).json({ success: false, message: 'Supplier name is required' });
@@ -371,9 +321,9 @@ app.post('/api/suppliers', async (req, res) => {
     }
 });
 
-app.put('/api/suppliers/:id', async (req, res) => {
+apiRouter.put('/suppliers/:id', async (req, res) => {
     try {
-        const { name, company, phone, email, address } = req.body;
+        const { name, company, phone, email, address } = req.body || {};
         const id = req.params.id;
 
         if (!name || !name.trim()) {
@@ -396,7 +346,7 @@ app.put('/api/suppliers/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/suppliers/:id', async (req, res) => {
+apiRouter.delete('/suppliers/:id', async (req, res) => {
     try {
         const result = await db.run('DELETE FROM suppliers WHERE id = ?', [req.params.id]);
         if (result.changes === 0) {
@@ -409,11 +359,8 @@ app.delete('/api/suppliers/:id', async (req, res) => {
     }
 });
 
-// ============================================================================
-// 📊 STOCK MANAGEMENT APIS
-// ============================================================================
-
-app.get('/api/stock', async (req, res) => {
+// 📊 Stock Management Endpoints
+apiRouter.get('/stock', async (req, res) => {
     try {
         const products = await db.all('SELECT * FROM products ORDER BY quantity ASC');
         let totalUnits = 0;
@@ -469,11 +416,10 @@ app.get('/api/stock', async (req, res) => {
     }
 });
 
-// Restock / Update Stock for a Product
-app.put('/api/stock/:id', async (req, res) => {
+apiRouter.put('/stock/:id', async (req, res) => {
     try {
         const id = req.params.id;
-        const { quantity, delta } = req.body;
+        const { quantity, delta } = req.body || {};
 
         const product = await db.get('SELECT * FROM products WHERE id = ?', [id]);
         if (!product) {
@@ -504,19 +450,15 @@ app.put('/api/stock/:id', async (req, res) => {
     }
 });
 
-// ============================================================================
-// 💰 POINT OF SALE (POS), BILLING & INVOICING APIS
-// ============================================================================
-
+// 💰 POS Billing & Invoicing Endpoints
 async function processSaleCheckout(req, res) {
     try {
-        const { customer_name, items, gst_rate, discount } = req.body;
+        const { customer_name, items, gst_rate, discount } = req.body || {};
 
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ success: false, message: 'Cart is empty. Add products to checkout.' });
         }
 
-        // Validate items and verify inventory
         for (const item of items) {
             if (!item.id || !item.quantity || item.quantity <= 0) {
                 return res.status(400).json({ success: false, message: `Invalid item or quantity for item ID ${item.id}` });
@@ -533,7 +475,6 @@ async function processSaleCheckout(req, res) {
             }
         }
 
-        // Calculate Pricing
         const invoice_number = 'INV-' + Date.now();
         const effectiveGstRate = Number(gst_rate) || 0;
         const discountAmount = Number(discount) || 0;
@@ -548,7 +489,6 @@ async function processSaleCheckout(req, res) {
         const date = new Date().toISOString();
         const customer = (customer_name || '').trim() || 'Walk-in Customer';
 
-        // Execute Transaction
         const transactionResult = await db.transaction(async (trx) => {
             const saleRes = await trx.run(
                 `INSERT INTO sales (invoice_number, customer_name, subtotal, gst, total, date) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -600,25 +540,20 @@ async function processSaleCheckout(req, res) {
     }
 }
 
-app.post('/api/billing', processSaleCheckout);
-app.post('/api/sales', processSaleCheckout); // Alias for compatibility
+apiRouter.post('/billing', processSaleCheckout);
+apiRouter.post('/sales', processSaleCheckout);
 
-// Invoices List & Details
-app.get('/api/invoices', async (req, res) => {
+apiRouter.get('/invoices', async (req, res) => {
     try {
         const invoices = await db.all('SELECT * FROM sales ORDER BY id DESC');
-        res.json({
-            success: true,
-            message: 'Invoices retrieved successfully',
-            data: invoices
-        });
+        res.json({ success: true, message: 'Invoices retrieved successfully', data: invoices });
     } catch (err) {
         console.error('Fetch Invoices Error:', err);
         res.status(500).json({ success: false, message: 'Failed to fetch invoices' });
     }
 });
 
-app.get('/api/invoices/:id', async (req, res) => {
+apiRouter.get('/invoices/:id', async (req, res) => {
     try {
         const id = req.params.id;
         const invoice = await db.get('SELECT * FROM sales WHERE id = ? OR invoice_number = ?', [id, id]);
@@ -635,28 +570,18 @@ app.get('/api/invoices/:id', async (req, res) => {
             [invoice.id]
         );
 
-        res.json({
-            success: true,
-            data: {
-                ...invoice,
-                items
-            }
-        });
+        res.json({ success: true, data: { ...invoice, items } });
     } catch (err) {
         console.error('Fetch Invoice Details Error:', err);
         res.status(500).json({ success: false, message: 'Failed to retrieve invoice details' });
     }
 });
 
-// ============================================================================
-// 📊 DASHBOARD & SALES REPORTS APIS
-// ============================================================================
-
-app.get('/api/dashboard', async (req, res) => {
+// 📊 Dashboard & Reports Endpoints
+apiRouter.get('/dashboard', async (req, res) => {
     try {
         const today = new Date().toISOString().split('T')[0];
 
-        // Gather all dashboard stats from database
         const prodCount = await db.get('SELECT COUNT(*) as count FROM products');
         const suppCount = await db.get('SELECT COUNT(*) as count FROM suppliers');
         const valRes = await db.get('SELECT SUM(price * quantity) as total_val FROM products');
@@ -676,36 +601,24 @@ app.get('/api/dashboard', async (req, res) => {
             sales_today: Number(todayRes && todayRes.rev ? todayRes.rev : 0)
         };
 
-        res.json({
-            success: true,
-            message: 'Dashboard stats retrieved',
-            data: stats
-        });
+        res.json({ success: true, message: 'Dashboard stats retrieved', data: stats });
     } catch (err) {
         console.error('Dashboard Stats Error:', err);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to compute dashboard metrics',
-            error: err.message
-        });
+        res.status(500).json({ success: false, message: 'Failed to compute dashboard metrics', error: err.message });
     }
 });
 
-app.get('/api/reports/sales', async (req, res) => {
+apiRouter.get('/reports/sales', async (req, res) => {
     try {
         const rows = await db.all('SELECT date, total, invoice_number, customer_name, subtotal, gst FROM sales ORDER BY id DESC');
-        res.json({
-            success: true,
-            message: 'Sales reports retrieved',
-            data: rows
-        });
+        res.json({ success: true, message: 'Sales reports retrieved', data: rows });
     } catch (err) {
         console.error('Sales Reports Error:', err);
         res.status(500).json({ success: false, message: 'Failed to retrieve sales reports' });
     }
 });
 
-app.get('/api/reports', async (req, res) => {
+apiRouter.get('/reports', async (req, res) => {
     try {
         const sales = await db.all('SELECT date, total, invoice_number, customer_name, subtotal, gst FROM sales ORDER BY id DESC');
         const topProducts = await db.all(
@@ -717,17 +630,31 @@ app.get('/api/reports', async (req, res) => {
              LIMIT 5`
         );
 
-        res.json({
-            success: true,
-            data: {
-                sales,
-                topProducts
-            }
-        });
+        res.json({ success: true, data: { sales, topProducts } });
     } catch (err) {
         console.error('Reports Error:', err);
         res.status(500).json({ success: false, message: 'Failed to generate reports' });
     }
+});
+
+// ============================================================================
+// Mount API Router on both '/api' and '/' (handles Vercel path rewrites smoothly)
+// ============================================================================
+app.use('/api', apiRouter);
+app.use('/', apiRouter);
+
+// 🏠 Navigation Fallbacks
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/login.html'));
+});
+
+app.get('/:page.html', (req, res) => {
+    const pagePath = path.join(__dirname, '../frontend', req.params.page + '.html');
+    res.sendFile(pagePath, (err) => {
+        if (err) {
+            res.status(404).send('Page not found');
+        }
+    });
 });
 
 module.exports = app;
