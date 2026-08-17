@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports & Analytics — InvFlow Management SaaS</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .report-filter-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-icon">⚡</div>
+                <div>
+                    <div class="brand-text">INVFLOW</div>
+                    <div class="brand-sub">Inventory & POS</div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section-title">Core Management</div>
+                <a href="index.html" class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    <span>Dashboard</span>
+                </a>
+                <a href="products.html" class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                    <span>Products</span>
+                </a>
+                <a href="suppliers.html" class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                    <span>Suppliers</span>
+                </a>
+                <a href="stock.html" class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    <span>Stock Levels</span>
+                </a>
+                
+                <div class="nav-section-title" style="margin-top:12px;">Sales & Billing</div>
+                <a href="billing.html" class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+                    <span>Billing POS</span>
+                </a>
+                <a href="reports.html" class="nav-item active">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                    <span>Reports & Analytics</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-badge">
+                    <div class="user-avatar">AD</div>
+                    <div class="user-info">
+                        <div class="user-name">Admin</div>
+                        <div class="user-role">Super Admin</div>
+                    </div>
+                </div>
+                <button type="button" class="btn-icon" onclick="logout()" title="Sign Out" aria-label="Sign Out">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Wrapper -->
+        <div class="main-wrapper">
+            
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <button class="mobile-menu-btn" onclick="toggleSidebar()" aria-label="Toggle menu">☰</button>
+                    <div class="page-headline">
+                        <h1>Sales Reports & Analytics</h1>
+                        <p>Detailed revenue breakdown, transaction trends and invoice export</p>
+                    </div>
+                </div>
+
+                <div class="topbar-right">
+                    <div class="topbar-date-chip">
+                        <span>📅</span>
+                        <span id="currentDateDisplay">Today</span>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="exportReportsCSV()">
+                        <span>📥 Export CSV</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Page Content -->
+            <main class="page-content">
+
+                <!-- Filter Controls -->
+                <div class="report-filter-bar">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <button type="button" class="btn btn-secondary btn-sm filter-range-btn active" data-range="all" onclick="setTimeRange('all')">All Time</button>
+                        <button type="button" class="btn btn-secondary btn-sm filter-range-btn" data-range="today" onclick="setTimeRange('today')">Today</button>
+                        <button type="button" class="btn btn-secondary btn-sm filter-range-btn" data-range="7days" onclick="setTimeRange('7days')">Last 7 Days</button>
+                        <button type="button" class="btn btn-secondary btn-sm filter-range-btn" data-range="30days" onclick="setTimeRange('30days')">Last 30 Days</button>
+                    </div>
+
+                    <div class="search-wrapper">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="reportSearchInput" placeholder="Search invoices or customer..." oninput="handleReportSearch()">
+                    </div>
+                </div>
+
+                <!-- 3 Metric Summary Cards -->
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Filtered Revenue</span>
+                            <div class="stat-icon-wrapper green">💰</div>
+                        </div>
+                        <div class="stat-value" id="reportTotalRevenue">₹0.00</div>
+                        <div class="stat-footer">
+                            <span class="trend-badge positive">Gross Sales</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Invoices Processed</span>
+                            <div class="stat-icon-wrapper purple">🧾</div>
+                        </div>
+                        <div class="stat-value" id="reportTotalInvoices">0</div>
+                        <div class="stat-footer">
+                            <span class="trend-badge positive">Completed Orders</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-header">
+                            <span class="stat-title">Average Order Value</span>
+                            <div class="stat-icon-wrapper blue">📈</div>
+                        </div>
+                        <div class="stat-value" id="reportAvgOrder">₹0.00</div>
+                        <div class="stat-footer">
+                            <span class="trend-badge neutral">Per Transaction</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chart Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2 class="panel-title">Revenue Trajectory</h2>
+                            <div class="panel-subtitle">Daily aggregate sales revenue</div>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="loadReports()">↻ Refresh Data</button>
+                    </div>
+                    <div class="panel-body">
+                        <canvas id="reportsChart" height="90"></canvas>
+                    </div>
+                </div>
+
+                <!-- Invoices Table Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2 class="panel-title">All Invoices</h2>
+                            <div class="panel-subtitle">Itemized invoice ledger</div>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="exportReportsCSV()">
+                            📥 Export to CSV
+                        </button>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice Number</th>
+                                    <th>Date & Time</th>
+                                    <th>Customer Name</th>
+                                    <th>Total Amount</th>
+                                    <th>Payment Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="salesTableBody">
+                                <tr>
+                                    <td colspan="5" class="text-center" style="padding:32px;">Loading sales reports...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script>
+        requireAuth();
+
+        let allSales = [];
+        let activeRange = 'all';
+        let reportChartInstance = null;
+
+        async function loadReports() {
+            try {
+                const res = await fetch('/api/reports/sales');
+                const json = await res.json();
+
+                if (json.success) {
+                    allSales = json.data || [];
+                    applyFilterAndRender();
+                }
+            } catch (e) {
+                console.error('Load Reports Error:', e);
+                showToast('Failed to load reports', 'error');
+            }
+        }
+
+        function setTimeRange(range) {
+            activeRange = range;
+            document.querySelectorAll('.filter-range-btn').forEach(btn => {
+                const isActive = btn.getAttribute('data-range') === range;
+                btn.className = isActive ? 'btn btn-primary btn-sm filter-range-btn active' : 'btn btn-secondary btn-sm filter-range-btn';
+            });
+            applyFilterAndRender();
+        }
+
+        function handleReportSearch() {
+            applyFilterAndRender();
+        }
+
+        function applyFilterAndRender() {
+            const query = (document.getElementById('reportSearchInput').value || '').toLowerCase().trim();
+            const now = new Date();
+
+            let filtered = allSales.filter(s => {
+                if (!s.date) return true;
+                const saleDate = new Date(s.date);
+
+                if (activeRange === 'today') {
+                    const todayStr = now.toISOString().split('T')[0];
+                    if (!s.date.startsWith(todayStr)) return false;
+                } else if (activeRange === '7days') {
+                    const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+                    if (saleDate < sevenDaysAgo) return false;
+                } else if (activeRange === '30days') {
+                    const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+                    if (saleDate < thirtyDaysAgo) return false;
+                }
+
+                if (query) {
+                    const inv = (s.invoice_number || '').toLowerCase();
+                    const cust = (s.customer_name || '').toLowerCase();
+                    return inv.includes(query) || cust.includes(query);
+                }
+
+                return true;
+            });
+
+            // Update Summary Stats
+            let totalRev = 0;
+            filtered.forEach(s => totalRev += (Number(s.total) || 0));
+            const count = filtered.length;
+            const avg = count > 0 ? (totalRev / count) : 0;
+
+            document.getElementById('reportTotalRevenue').innerText = formatCurrency(totalRev);
+            document.getElementById('reportTotalInvoices').innerText = count;
+            document.getElementById('reportAvgOrder').innerText = formatCurrency(avg);
+
+            // Render Table
+            renderTable(filtered);
+
+            // Render Chart
+            renderChart(filtered);
+        }
+
+        function renderTable(sales) {
+            const tbody = document.getElementById('salesTableBody');
+            tbody.innerHTML = '';
+
+            if (!sales || sales.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="empty-state">
+                            <div class="empty-state-icon">📈</div>
+                            <div class="empty-state-title">No transactions found</div>
+                            <div class="empty-state-desc">No billing invoices match the active date range or search query.</div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            sales.forEach(s => {
+                const dateDisplay = s.date ? new Date(s.date).toLocaleString('en-IN', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }) : '—';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong style="color:var(--primary); font-family:monospace; font-size:0.95rem;">${escapeHtml(s.invoice_number)}</strong></td>
+                    <td>${dateDisplay}</td>
+                    <td><strong>${escapeHtml(s.customer_name || 'Walk-in Customer')}</strong></td>
+                    <td><strong style="font-size:0.95rem; color:var(--text-primary);">${formatCurrency(s.total)}</strong></td>
+                    <td><span class="status-pill success"><span class="dot"></span> Paid</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderChart(sales) {
+            const ctx = document.getElementById('reportsChart').getContext('2d');
+
+            const grouped = {};
+            sales.forEach(s => {
+                const d = (s.date || '').split('T')[0];
+                if (d) {
+                    grouped[d] = (grouped[d] || 0) + (Number(s.total) || 0);
+                }
+            });
+
+            let labels = Object.keys(grouped).reverse();
+            let values = Object.values(grouped).reverse();
+
+            if (labels.length === 0) {
+                labels = ['No Data'];
+                values = [0];
+            }
+
+            if (reportChartInstance) {
+                reportChartInstance.destroy();
+            }
+
+            reportChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Sales Revenue (₹)',
+                        data: values,
+                        backgroundColor: '#2563eb',
+                        borderRadius: 6,
+                        maxBarThickness: 45
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ' Total: ' + formatCurrency(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: '#f1f5f9' },
+                            ticks: {
+                                callback: function(val) {
+                                    return '₹' + val.toLocaleString('en-IN');
+                                },
+                                font: { family: 'Inter', size: 11 }
+                            }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { family: 'Inter', size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        function exportReportsCSV() {
+            if (allSales.length === 0) {
+                return showToast('No sales data to export', 'warning');
+            }
+
+            let csv = 'Invoice Number,Date,Customer Name,Total Amount (INR),Status\n';
+            allSales.forEach(s => {
+                const inv = `"${(s.invoice_number || '').replace(/"/g, '""')}"`;
+                const date = `"${(s.date || '').replace(/"/g, '""')}"`;
+                const cust = `"${(s.customer_name || 'Walk-in Customer').replace(/"/g, '""')}"`;
+                const tot = Number(s.total || 0).toFixed(2);
+                csv += `${inv},${date},${cust},${tot},Paid\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `InvFlow_Sales_Report_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('Sales report exported as CSV', 'success');
+        }
+
+        document.addEventListener('DOMContentLoaded', loadReports);
+    </script>
+</body>
+</html>
