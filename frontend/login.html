@@ -85,20 +85,19 @@
             btn.innerHTML = '<span style="display:inline-block; animation:spin 1s linear infinite;">⏳</span> Signing in...';
 
             try {
-                const res = await fetch('/api/login', {
+                const data = await apiFetch('/auth/login', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username: u, password: p })
                 });
 
-                const data = await res.json();
-
                 if (data.success) {
-                    sessionStorage.setItem('auth', 'true');
+                    const token = data.data && data.data.token ? data.data.token : 'active_session';
+                    const user = data.data && data.data.user ? data.data.user : { username: u, role: 'admin' };
+                    setAuthSession(token, user);
                     showToast('Login successful! Redirecting...', 'success');
                     setTimeout(() => {
                         window.location.href = 'index.html';
-                    }, 800);
+                    }, 600);
                 } else {
                     showToast(data.message || 'Invalid username or password', 'error');
                     btn.disabled = false;
@@ -106,7 +105,7 @@
                 }
             } catch (err) {
                 console.error('Login Error:', err);
-                showToast('Unable to connect to server. Please ensure backend is running.', 'error');
+                showToast(err.message || 'Unable to connect to server. Please ensure backend is running.', 'error');
                 btn.disabled = false;
                 btn.innerText = 'Sign In to Dashboard';
             }

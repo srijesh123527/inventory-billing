@@ -1,35 +1,111 @@
-// ==========================================================================
-// api.js - Core Utilities, Authentication, Navigation & SaaS UI Helpers
-// ==========================================================================
+// ============================================================================
+// api.js — Centralized API Client, Authentication & UI Framework
+// ============================================================================
 
+// Centralized API Base URL Configuration (Production & Vercel friendly)
 const API_BASE = '/api';
 
-// Authentication Check
+// ============================================================================
+// Centralized API Fetch Wrapper
+// ============================================================================
+async function apiFetch(endpoint, options = {}) {
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
+
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+    };
+
+    // Attach JWT Bearer token if present
+    const token = sessionStorage.getItem('invflow_token') || localStorage.getItem('invflow_token');
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const config = {
+        ...options,
+        headers
+    };
+
+    try {
+        const response = await fetch(url, config);
+
+        // Handle Session Expiry / Unauthorized
+        if (response.status === 401) {
+            sessionStorage.removeItem('invflow_token');
+            sessionStorage.removeItem('invflow_user');
+            sessionStorage.removeItem('auth');
+            if (!window.location.pathname.endsWith('login.html') && window.location.pathname !== '/') {
+                showToast('Session expired. Please sign in again.', 'warning');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 1200);
+            }
+            throw new Error('Authentication required');
+        }
+
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+            const errorMsg = (data && data.message) || `Request failed with status ${response.status}`;
+            throw new Error(errorMsg);
+        }
+
+        return data;
+    } catch (err) {
+        console.error(`API Error [${endpoint}]:`, err);
+        throw err;
+    }
+}
+
+// ============================================================================
+// Authentication & Session Guard
+// ============================================================================
+
+function setAuthSession(token, user) {
+    sessionStorage.setItem('invflow_token', token);
+    sessionStorage.setItem('invflow_user', JSON.stringify(user || { username: 'admin' }));
+    sessionStorage.setItem('auth', 'true');
+}
+
+function getAuthUser() {
+    try {
+        const userStr = sessionStorage.getItem('invflow_user');
+        return userStr ? JSON.parse(userStr) : { username: 'Admin', role: 'Super Admin' };
+    } catch (e) {
+        return { username: 'Admin', role: 'Super Admin' };
+    }
+}
+
 function requireAuth() {
-    const isAuth = sessionStorage.getItem('auth');
+    const isAuth = sessionStorage.getItem('auth') || sessionStorage.getItem('invflow_token');
     if (!isAuth) {
-        window.location.href = '/';
+        window.location.href = 'login.html';
     }
 }
 
-// Redirect if already logged in
 function checkAlreadyLogged() {
-    const isAuth = sessionStorage.getItem('auth');
+    const isAuth = sessionStorage.getItem('auth') || sessionStorage.getItem('invflow_token');
     if (isAuth) {
-        window.location.href = '/index.html';
+        window.location.href = 'index.html';
     }
 }
 
-// Logout functionality
 function logout() {
+    sessionStorage.removeItem('invflow_token');
+    sessionStorage.removeItem('invflow_user');
     sessionStorage.removeItem('auth');
-    window.location.href = '/';
+    localStorage.removeItem('invflow_token');
+    showToast('Signed out successfully', 'info');
+    setTimeout(() => {
+        window.location.href = 'login.html';
+    }, 400);
 }
 
-// ==========================================================================
+// ============================================================================
 // Toast Notification System
 // Types: 'success', 'error', 'warning', 'info'
-// ==========================================================================
+// ============================================================================
 function showToast(message, type = 'success') {
     let container = document.getElementById('toast-container');
     if (!container) {
@@ -64,14 +140,13 @@ function showToast(message, type = 'success') {
     }, 3500);
 }
 
-// Alias for compatibility
 function showMessage(message, type = 'success') {
     showToast(message, type);
 }
 
-// ==========================================================================
-// Modal Handlers
-// ==========================================================================
+// ============================================================================
+// Accessible Modal Controller
+// ============================================================================
 function openModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
@@ -88,9 +163,9 @@ function closeModal(modalId) {
     }
 }
 
-// Close on backdrop click and Esc key
+// Attach event listeners for backdrop clicks, close buttons, and Esc key
 document.addEventListener('DOMContentLoaded', () => {
-    // Backdrop close
+    // Backdrop click close
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) {
@@ -100,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Close buttons with .modal-close-btn
+    // Close button triggers
     document.querySelectorAll('.modal-close-btn, .btn-modal-close').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const modal = e.target.closest('.modal-overlay');
@@ -111,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Esc key
+    // Esc key trigger
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             document.querySelectorAll('.modal-overlay.active').forEach(m => {
@@ -121,14 +196,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Sync Topbar Date & Active Navigation
+    // UI Helpers
     syncTopbarDate();
     highlightActiveNav();
+    syncUserInfo();
 });
 
-// ==========================================================================
-// Mobile Sidebar Toggle
-// ==========================================================================
+// ============================================================================
+// Mobile Drawer & Sidebar Navigation
+// ============================================================================
 function toggleSidebar() {
     const sidebar = document.querySelector('.sidebar');
     let overlay = document.querySelector('.sidebar-overlay');
@@ -149,9 +225,9 @@ function toggleSidebar() {
     }
 }
 
-// ==========================================================================
-// Currency & Date Formatters
-// ==========================================================================
+// ============================================================================
+// Formatting & XSS Helpers
+// ============================================================================
 function formatCurrency(amount) {
     const num = Number(amount) || 0;
     return '₹' + num.toLocaleString('en-IN', {
@@ -174,12 +250,45 @@ function formatDate(dateString) {
     }
 }
 
+function formatDateTime(dateString) {
+    if (!dateString) return '—';
+    try {
+        const d = new Date(dateString);
+        return d.toLocaleString('en-IN', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        return dateString;
+    }
+}
+
 function syncTopbarDate() {
     const dateChip = document.getElementById('currentDateDisplay');
     if (dateChip) {
         const now = new Date();
         const options = { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' };
         dateChip.innerText = now.toLocaleDateString('en-US', options);
+    }
+}
+
+function syncUserInfo() {
+    const user = getAuthUser();
+    const avatarEl = document.querySelector('.user-avatar');
+    const nameEl = document.querySelector('.user-name');
+    const roleEl = document.querySelector('.user-role');
+
+    if (nameEl && user && user.username) {
+        nameEl.innerText = user.username.charAt(0).toUpperCase() + user.username.slice(1);
+    }
+    if (avatarEl && user && user.username) {
+        avatarEl.innerText = user.username.slice(0, 2).toUpperCase();
+    }
+    if (roleEl && user && user.role) {
+        roleEl.innerText = user.role;
     }
 }
 
@@ -195,9 +304,8 @@ function highlightActiveNav() {
     });
 }
 
-// HTML Escaper for XSS Prevention
 function escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')

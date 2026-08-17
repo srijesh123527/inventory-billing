@@ -187,13 +187,15 @@
                                     <th>Invoice Number</th>
                                     <th>Date & Time</th>
                                     <th>Customer Name</th>
+                                    <th>Subtotal</th>
+                                    <th>GST Tax</th>
                                     <th>Total Amount</th>
                                     <th>Payment Status</th>
                                 </tr>
                             </thead>
                             <tbody id="salesTableBody">
                                 <tr>
-                                    <td colspan="5" class="text-center" style="padding:32px;">Loading sales reports...</td>
+                                    <td colspan="7" class="text-center" style="padding:32px;">Loading sales reports...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -214,8 +216,7 @@
 
         async function loadReports() {
             try {
-                const res = await fetch('/api/reports/sales');
-                const json = await res.json();
+                const json = await apiFetch('/reports/sales');
 
                 if (json.success) {
                     allSales = json.data || [];
@@ -292,7 +293,7 @@
             if (!sales || sales.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="5" class="empty-state">
+                        <td colspan="7" class="empty-state">
                             <div class="empty-state-icon">📈</div>
                             <div class="empty-state-title">No transactions found</div>
                             <div class="empty-state-desc">No billing invoices match the active date range or search query.</div>
@@ -316,6 +317,8 @@
                     <td><strong style="color:var(--primary); font-family:monospace; font-size:0.95rem;">${escapeHtml(s.invoice_number)}</strong></td>
                     <td>${dateDisplay}</td>
                     <td><strong>${escapeHtml(s.customer_name || 'Walk-in Customer')}</strong></td>
+                    <td>${formatCurrency(s.subtotal || s.total)}</td>
+                    <td>${formatCurrency(s.gst || 0)}</td>
                     <td><strong style="font-size:0.95rem; color:var(--text-primary);">${formatCurrency(s.total)}</strong></td>
                     <td><span class="status-pill success"><span class="dot"></span> Paid</span></td>
                 `;
@@ -324,7 +327,9 @@
         }
 
         function renderChart(sales) {
-            const ctx = document.getElementById('reportsChart').getContext('2d');
+            const canvas = document.getElementById('reportsChart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
 
             const grouped = {};
             sales.forEach(s => {
@@ -396,13 +401,15 @@
                 return showToast('No sales data to export', 'warning');
             }
 
-            let csv = 'Invoice Number,Date,Customer Name,Total Amount (INR),Status\n';
+            let csv = 'Invoice Number,Date,Customer Name,Subtotal (INR),GST (INR),Total Amount (INR),Status\n';
             allSales.forEach(s => {
                 const inv = `"${(s.invoice_number || '').replace(/"/g, '""')}"`;
                 const date = `"${(s.date || '').replace(/"/g, '""')}"`;
                 const cust = `"${(s.customer_name || 'Walk-in Customer').replace(/"/g, '""')}"`;
+                const sub = Number(s.subtotal || s.total || 0).toFixed(2);
+                const gst = Number(s.gst || 0).toFixed(2);
                 const tot = Number(s.total || 0).toFixed(2);
-                csv += `${inv},${date},${cust},${tot},Paid\n`;
+                csv += `${inv},${date},${cust},${sub},${gst},${tot},Paid\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

@@ -194,8 +194,7 @@
 
         async function loadSuppliers() {
             try {
-                const res = await fetch('/api/suppliers');
-                const json = await res.json();
+                const json = await apiFetch('/suppliers');
 
                 const tbody = document.getElementById('suppliersTableBody');
                 tbody.innerHTML = '';
@@ -286,30 +285,28 @@
                 address: document.getElementById('sAddress').value.trim()
             };
 
-            const url = id ? `/api/suppliers/${id}` : '/api/suppliers';
+            const endpoint = id ? `/suppliers/${id}` : '/suppliers';
             const method = id ? 'PUT' : 'POST';
             const btn = document.getElementById('btnSaveSupplier');
             btn.disabled = true;
             btn.innerText = 'Saving...';
 
             try {
-                const res = await fetch(url, {
+                const json = await apiFetch(endpoint, {
                     method: method,
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
                 });
-                const json = await res.json();
 
                 if (json.success) {
                     showToast(json.message || 'Supplier saved successfully', 'success');
                     closeModal('supplierModal');
-                    loadSuppliers();
+                    await loadSuppliers();
                 } else {
                     showToast(json.message || 'Error saving supplier', 'error');
                 }
             } catch (err) {
                 console.error('Save Supplier Error:', err);
-                showToast('Error connecting to backend', 'error');
+                showToast(err.message || 'Error saving supplier', 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerText = id ? 'Save Changes' : 'Save Supplier';
@@ -322,17 +319,16 @@
 
             if (confirm(`Are you sure you want to delete supplier "${name}"?`)) {
                 try {
-                    const res = await fetch(`/api/suppliers/${id}`, { method: 'DELETE' });
-                    const json = await res.json();
+                    const json = await apiFetch(`/suppliers/${id}`, { method: 'DELETE' });
                     if (json.success) {
                         showToast(json.message || 'Supplier deleted successfully', 'success');
-                        loadSuppliers();
+                        await loadSuppliers();
                     } else {
                         showToast(json.message || 'Error deleting supplier', 'error');
                     }
                 } catch (e) {
                     console.error('Delete Supplier Error:', e);
-                    showToast('Error deleting supplier', 'error');
+                    showToast(e.message || 'Error deleting supplier', 'error');
                 }
             }
         }

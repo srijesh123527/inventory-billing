@@ -257,8 +257,7 @@
 
         async function loadStock() {
             try {
-                const res = await fetch('/api/products');
-                const json = await res.json();
+                const json = await apiFetch('/products');
 
                 if (json.success) {
                     stockProducts = json.data || [];

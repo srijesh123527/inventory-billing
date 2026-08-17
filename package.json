@@ -1,23 +1,24 @@
 {
-  "name": "billing_system",
+  "name": "invflow-inventory-billing",
   "version": "1.0.0",
   "description": "Production & Vercel-Ready Inventory & Billing Management System",
-  "main": "server.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "test": "node tests/api.test.js"
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js",
+    "test": "node backend/tests/api.test.js"
   },
   "keywords": [
     "inventory",
     "billing",
     "pos",
     "invoice",
-    "management-system"
+    "postgresql",
+    "sqlite",
+    "vercel"
   ],
   "author": "",
   "license": "MIT",
-  "type": "commonjs",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

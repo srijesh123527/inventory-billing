@@ -106,11 +106,6 @@
                                         <span class="search-icon">🔍</span>
                                         <input type="text" id="posSearchInput" placeholder="Search catalog by name or category..." oninput="handlePosSearch()">
                                     </div>
-                                    <div style="display:none;">
-                                        <!-- Keep legacy elements for direct compatibility -->
-                                        <select id="productSelect"></select>
-                                        <input type="number" id="addQty" value="1">
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -191,6 +186,7 @@
 
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('invoiceModal')">Close</button>
+                <button type="button" class="btn btn-secondary" onclick="window.print()">🖨️ Print</button>
                 <button type="button" class="btn btn-primary" id="btnDownloadInvoicePDF">📥 Download PDF</button>
             </div>
         </div>
@@ -207,8 +203,7 @@
 
         async function loadProducts() {
             try {
-                const res = await fetch('/api/products');
-                const json = await res.json();
+                const json = await apiFetch('/products');
                 if (json.success) {
                     products = json.data || [];
                     renderCatalog(products);
@@ -404,9 +399,8 @@
             btn.innerText = 'Processing Bill...';
 
             try {
-                const res = await fetch('/api/sales', {
+                const json = await apiFetch('/billing', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         customer_name: customerName,
                         items: cart,
@@ -414,16 +408,19 @@
                     })
                 });
 
-                const data = await res.json();
-
-                if (data.success) {
+                if (json.success) {
                     showToast('Bill generated & invoice created!', 'success');
 
+                    const saleData = json.data;
+
                     lastInvoiceData = {
-                        invoiceNumber: data.invoice_number,
+                        invoiceNumber: saleData.invoice_number,
                         customerName: customerName,
                         items: [...cart],
                         gstRate: gstRate,
+                        subtotal: saleData.subtotal,
+                        gst: saleData.gst,
+                        total: saleData.total,
                         date: new Date().toLocaleDateString('en-IN', { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
                     };
 
@@ -434,13 +431,13 @@
                     cart = [];
                     document.getElementById('customerName').value = '';
                     renderCart();
-                    loadProducts();
+                    await loadProducts();
                 } else {
-                    showToast(data.message || 'Error processing invoice', 'error');
+                    showToast(json.message || 'Error processing invoice', 'error');
                 }
             } catch (err) {
                 console.error('Checkout Error:', err);
-                showToast('Unable to complete sale transaction', 'error');
+                showToast(err.message || 'Unable to complete sale transaction', 'error');
             } finally {
                 btn.disabled = cart.length === 0;
                 btn.innerText = '🧾 Generate Bill & Checkout';
